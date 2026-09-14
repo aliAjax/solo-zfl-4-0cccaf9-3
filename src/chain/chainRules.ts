@@ -28,6 +28,7 @@ export const STATUS_META: Record<VialStatus, { label: string; emoji: string; bad
   waiting: { label: '待取', emoji: '⏳', badge: 'bg-ochre-100 text-ochre-600 border-ochre-200', dot: 'bg-ochre-400' },
   on_loan: { label: '借出', emoji: '🤲', badge: 'bg-lavender-300/40 text-lavender-600 border-lavender-400/50', dot: 'bg-lavender-500' },
   purifying: { label: '净化', emoji: '🧪', badge: 'bg-sky-100 text-sky-700 border-sky-200', dot: 'bg-sky-500' },
+  abnormal: { label: '异常待处理', emoji: '🚧', badge: 'bg-brick-400/15 text-brick-600 border-brick-400/40', dot: 'bg-brick-500' },
   sealed: { label: '封存', emoji: '🔒', badge: 'bg-ink-900/10 text-ink-800 border-ink-900/20', dot: 'bg-ink-700' },
 };
 
@@ -49,6 +50,8 @@ export const EVENT_META: Record<TimelineEventType, { label: string; emoji: strin
   purify_conflict: { label: '核对冲突', emoji: '⚡' },
   purify_requeued: { label: '返回净化队列', emoji: '🔄' },
   purify_completed: { label: '净化完成', emoji: '✨' },
+  purify_abnormal: { label: '判定异常·隔离', emoji: '🚧' },
+  abnormal_repurify: { label: '异常样本重新送检', emoji: '🔬' },
   sealed: { label: '封存', emoji: '🔒' },
 };
 
@@ -84,6 +87,10 @@ function statusError(status: VialStatus | undefined, actionDesc: string): string
   if (status === 'sealed') return sealedError;
   const cur = STATUS_META[status].label;
   return `非法状态变化：样本当前为「${cur}」，${actionDesc}。请先完成当前环节后再操作。`;
+}
+
+function abnormalError(actionDesc: string): string {
+  return `非法状态变化：样本当前为「异常待处理」——两名核对人一致判定异常，已隔离，不能${actionDesc}、不能借出也不能回柜。请重新送检净化，或做封存处置。`;
 }
 
 function vialLoanSeq(state: ChainState, vialId: string): number {
@@ -147,6 +154,7 @@ export function reduceChain(prev: ChainState, action: ChainAction, ctx: ActionCo
     case 'request_wait': {
       const vial = state.vials.find((v) => v.id === action.vialId);
       if (!vial) return { state: prev, error: statusError(undefined, '') };
+      if (vial.status === 'abnormal') return { state: prev, error: abnormalError('预约待取') };
       if (vial.status !== 'in_cabinet') return { state: prev, error: statusError(vial.status, '只有「在柜」样本才能申请待取') };
       if (!action.requester.trim()) return { state: prev, error: '请填写申领人。' };
 
@@ -196,6 +204,7 @@ export function reduceChain(prev: ChainState, action: ChainAction, ctx: ActionCo
     case 'loan': {
       const vial = state.vials.find((v) => v.id === action.vialId);
       if (!vial) return { state: prev, error: statusError(undefined, '') };
+      if (vial.status === 'abnormal') return { state: prev, error: abnormalError('借出') };
       if (vial.status !== 'waiting') return { state: prev, error: statusError(vial.status, '只有「待取」队首样本可以借出') };
       const idx = state.waitQueue.indexOf(vial.id);
       if (idx > 0) return { state: prev, error: `非法状态变化：待取按登记顺序排队，该样本前面还有 ${idx} 位等待者，请按序领取。` };
@@ -311,7 +320,10 @@ export function reduceChain(prev: ChainState, action: ChainAction, ctx: ActionCo
     case 'purify_start': {
       const vial = state.vials.find((v) => v.id === action.vialId);
       if (!vial) return { state: prev, error: statusError(undefined, '') };
-      if (vial.status !== 'in_cabinet') return { state: prev, error: statusError(vial.status, '只有「在柜」样本可以发起净化') };
+      if (vial.status !== 'in_cabinet' && vial.status !== 'abnormal') {
+        return { state: prev, error: statusError(vial.status, '只有「在柜」或「异常待处理」样本可以送检净化') };
+      }
+      const fromAbnormal = vial.status === 'abnormal';
 
       const round: PurifyRound = {
         id: ctx.genId('rnd'),
@@ -322,8 +334,20 @@ export function reduceChain(prev: ChainState, action: ChainAction, ctx: ActionCo
         status: 'pending',
       };
       state = { ...state, rounds: [...state.rounds, round] };
-      state = patchVial(state, vial.id, { status: 'purifying', activeRoundId: round.id });
-      commit(state, vial.id, 'purify_started', { roundId: round.id, roundSeq: round.seq, note: action.note?.trim() || null });
+      state = patchVial(state, vial.id, {
+        status: 'purifying',
+        activeRoundId: round.id,
+        abnormalAt: undefined,
+        abnormalReason: undefined,
+      });
+      commit(
+        state,
+        vial.id,
+        fromAbnormal ? 'abnormal_repurify' : 'purify_started',
+        fromAbnormal
+          ? { roundId: round.id, roundSeq: round.seq, note: action.note?.trim() || null }
+          : { roundId: round.id, roundSeq: round.seq, note: action.note?.trim() || null },
+      );
       return { state };
     }
 
@@ -358,8 +382,8 @@ export function reduceChain(prev: ChainState, action: ChainAction, ctx: ActionCo
       if (updatedRound.verdicts.length < 2) return { state };
 
       const [a, b] = updatedRound.verdicts;
-      if (a.conclusion === b.conclusion) {
-        // 两名核对人结论相同 → 完成，样本回柜
+      if (a.conclusion === b.conclusion && a.conclusion === 'match') {
+        // 两名核对人结论一致且相符 → 净化完成，样本回柜
         updatedRound = {
           ...updatedRound,
           status: 'completed',
@@ -373,6 +397,33 @@ export function reduceChain(prev: ChainState, action: ChainAction, ctx: ActionCo
           roundSeq: round.seq,
           conclusion: a.conclusion,
           reviewers: updatedRound.verdicts.map((d) => d.reviewer),
+        });
+        return { state };
+      }
+
+      if (a.conclusion === b.conclusion && a.conclusion === 'mismatch') {
+        // 两名核对人一致判定异常不符 → 轮次以异常结束；样本隔离待处理，不回柜
+        updatedRound = {
+          ...updatedRound,
+          status: 'abnormal',
+          agreedConclusion: a.conclusion,
+          endedAt: ctx.now,
+        };
+        state = { ...state, rounds: state.rounds.map((r) => (r.id === round.id ? updatedRound : r)) };
+        const reason = updatedRound.verdicts.map((d) => d.note).filter(Boolean).join('；') || undefined;
+        state = patchVial(state, vial.id, {
+          status: 'abnormal',
+          activeRoundId: null,
+          abnormalAt: ctx.now,
+          abnormalReason: reason,
+        });
+        commit(state, vial.id, 'purify_abnormal', {
+          roundId: round.id,
+          roundSeq: round.seq,
+          conclusion: a.conclusion,
+          reviewers: updatedRound.verdicts.map((d) => d.reviewer),
+          notes: updatedRound.verdicts.map((d) => d.note ?? null),
+          reason: reason ?? null,
         });
         return { state };
       }
@@ -409,17 +460,22 @@ export function reduceChain(prev: ChainState, action: ChainAction, ctx: ActionCo
       const vial = state.vials.find((v) => v.id === action.vialId);
       if (!vial) return { state: prev, error: statusError(undefined, '') };
       if (vial.status === 'sealed') return { state: prev, error: sealedError };
-      if (vial.status !== 'in_cabinet') {
-        return { state: prev, error: statusError(vial.status, '只有「在柜」样本可以封存；待取请先撤回或借出，借出请先归还，净化请先完成') };
+      if (vial.status !== 'in_cabinet' && vial.status !== 'abnormal') {
+        return { state: prev, error: statusError(vial.status, '只有「在柜」或「异常待处理」样本可以封存；待取请先撤回或借出，借出请先归还，净化请先完成') };
       }
       if (!action.reason.trim()) return { state: prev, error: '请填写封存原因。' };
+      const fromAbnormal = vial.status === 'abnormal';
 
       state = patchVial(state, vial.id, {
         status: 'sealed',
         sealedAt: ctx.now,
         sealReason: action.reason.trim(),
+        abnormalAt: fromAbnormal ? vial.abnormalAt : undefined,
       });
-      commit(state, vial.id, 'sealed', { reason: action.reason.trim() });
+      commit(state, vial.id, 'sealed', {
+        reason: action.reason.trim(),
+        fromAbnormal,
+      });
       return { state };
     }
   }

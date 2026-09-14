@@ -77,6 +77,18 @@ export default function VialDetailModal({ isOpen, vial, state, onClose, onAction
               {round.verdicts.length === 1 && <p className="text-xs text-ochre-600">等待第二名核对人提交，结论需一致才能完成。</p>}
             </div>
           )}
+          {vial.status === 'abnormal' && (
+            <div className="mt-3 space-y-2">
+              <div className="rounded-xl bg-brick-400/10 border border-brick-400/40 px-3.5 py-3 text-sm text-brick-600 font-medium">
+                🚧 两名核对人一致判定「异常不符」，样本已隔离为异常待处理
+              </div>
+              <p className="text-xs text-ink-700/70">
+                该样本不能回柜、不能预约待取、不能借出。请重新送检净化，或做封存处置。
+                {vial.abnormalAt ? ` 隔离于 ${formatDate(vial.abnormalAt)}。` : ''}
+              </p>
+              {vial.abnormalReason && <p className="text-xs text-ink-700/60">异常说明：{vial.abnormalReason}</p>}
+            </div>
+          )}
           {vial.status === 'sealed' && (
             <div className="mt-3 text-sm text-ink-700">
               <p>封存原因：{vial.sealReason}</p>
@@ -112,6 +124,12 @@ export default function VialDetailModal({ isOpen, vial, state, onClose, onAction
                   onClick={() => onAction('verdict', vial)}>
                   🔍 提交核对结论{round && round.verdicts.length >= 2 ? '（本轮已结束）' : ''}
                 </button>
+              )}
+              {vial.status === 'abnormal' && (
+                <>
+                  <button className={actBtn} onClick={() => onAction('purify_start', vial)}>🔬 重新送检净化</button>
+                  <button className="btn-danger !py-2 !px-3.5 text-sm" onClick={() => onAction('seal', vial)}>🔒 封存处置</button>
+                </>
               )}
             </div>
           )}
@@ -160,9 +178,13 @@ export default function VialDetailModal({ isOpen, vial, state, onClose, onAction
                     <span className={`scent-tag text-[10px] ${
                       r.status === 'completed' ? 'bg-moss-100 text-moss-600'
                         : r.status === 'conflict' ? 'bg-brick-400/15 text-brick-600'
+                        : r.status === 'abnormal' ? 'bg-brick-400/15 text-brick-600'
                         : 'bg-sky-100 text-sky-700'
                     }`}>
-                      {r.status === 'completed' ? '结论一致 · 已完成' : r.status === 'conflict' ? '结论冲突 · 已重新排队' : '等待核对'}
+                      {r.status === 'completed' ? '结论一致相符 · 已完成'
+                        : r.status === 'conflict' ? '结论冲突 · 已重新排队'
+                        : r.status === 'abnormal' ? '一致判定异常 · 样本隔离'
+                        : '等待核对'}
                     </span>
                   </div>
                   <div className="mt-2 space-y-1">

@@ -24,7 +24,7 @@ const MODE_TITLE: Record<ActionMode, { title: string; subtitle: string; emoji: s
   loan: { title: '办理借出', subtitle: '须登记持有人、取件点和用途', emoji: '🤲' },
   return: { title: '原瓶归还', subtitle: '确认封签完好后归还回柜', emoji: '📥' },
   transfer: { title: '转交持有人', subtitle: '生成新交接记录并结束旧记录', emoji: '🔁' },
-  purify_start: { title: '发起净化', subtitle: '需两名核对人结论相同才能完成', emoji: '🧪' },
+  purify_start: { title: '发起净化', subtitle: '双人一致相符才完成回柜；一致异常则隔离待处理，冲突将重新排队', emoji: '🧪' },
   verdict: { title: '提交净化核对结论', subtitle: '两名核对人不得为同一人', emoji: '🔍' },
   seal: { title: '封存样本', subtitle: '封存后不能恢复，请谨慎确认', emoji: '🔒' },
 };
@@ -64,6 +64,7 @@ export default function ActionModal({ mode, vial, isOpen, onClose, onToast }: Pr
   if (!isOpen && tokenRef.current) tokenRef.current = '';
 
   const meta = MODE_TITLE[mode];
+  const title = mode === 'purify_start' && vial?.status === 'abnormal' ? '🔬 异常样本重新送检' : `${meta.emoji} ${meta.title}`;
 
   const close = () => {
     setError('');
@@ -136,7 +137,7 @@ export default function ActionModal({ mode, vial, isOpen, onClose, onToast }: Pr
   const labelCls = 'block text-sm font-medium text-ink-700 mb-1.5';
 
   return (
-    <Modal isOpen={isOpen} onClose={close} title={`${meta.emoji} ${meta.title}`} subtitle={subtitle(vial, meta.subtitle)}>
+    <Modal isOpen={isOpen} onClose={close} title={title} subtitle={subtitle(vial, vial?.status === 'abnormal' && mode === 'purify_start' ? '异常隔离样本重新进入净化核对，结果将记入时间线' : meta.subtitle)}>
       <form onSubmit={handle} className="space-y-4">
         {mode === 'register' && (
           <>
@@ -238,6 +239,11 @@ export default function ActionModal({ mode, vial, isOpen, onClose, onToast }: Pr
 
         {mode === 'purify_start' && (
           <div>
+            {vial?.status === 'abnormal' && (
+              <div className="mb-3 rounded-xl bg-brick-400/10 border border-brick-400/40 px-3.5 py-2.5 text-xs text-brick-600">
+                该样本此前双人一致判定异常、处于隔离。重新送检将开启新一轮核对。
+              </div>
+            )}
             <label className={labelCls}>净化原因 / 备注</label>
             <textarea className="scent-textarea" rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="例如：读者反映气味偏淡；发起后等待两名核对人结论" />
           </div>
@@ -269,7 +275,7 @@ export default function ActionModal({ mode, vial, isOpen, onClose, onToast }: Pr
                   </button>
                 ))}
               </div>
-              <p className="text-[11px] text-ink-700/50 mt-1.5">两人结论相同则净化完成；结论冲突将自动返回净化队列重新核对。</p>
+              <p className="text-[11px] text-ink-700/50 mt-1.5">两人一致相符 → 净化完成回柜；一致异常 → 隔离待处理（不可预约 / 借出）；结论冲突 → 自动返回净化队列重新核对。</p>
             </div>
             <div>
               <label className={labelCls}>核对备注</label>
@@ -281,11 +287,13 @@ export default function ActionModal({ mode, vial, isOpen, onClose, onToast }: Pr
         {mode === 'seal' && (
           <>
             <div className="rounded-xl bg-brick-400/10 border border-brick-400/40 p-3 text-sm text-brick-600">
-              ⚠️ 封存为终态操作，封存后不能恢复，也不能再借出或净化。
+              {vial?.status === 'abnormal'
+                ? '⚠️ 对异常待处理样本做封存处置：封存为终态，之后不能恢复、不能再送检或借出。'
+                : '⚠️ 封存为终态操作，封存后不能恢复，也不能再借出或净化。'}
             </div>
             <div>
-              <label className={labelCls}>封存原因 *</label>
-              <textarea className="scent-textarea" rows={3} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="例如：活性成分衰减，长期保存不再出库" required />
+              <label className={labelCls}>{vial?.status === 'abnormal' ? '封存处置原因 *' : '封存原因 *'}</label>
+              <textarea className="scent-textarea" rows={3} value={reason} onChange={(e) => setReason(e.target.value)} placeholder={vial?.status === 'abnormal' ? '例如：复检确认变质，按异常样本封存处置' : '例如：活性成分衰减，长期保存不再出库'} required />
             </div>
           </>
         )}

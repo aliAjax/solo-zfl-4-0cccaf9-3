@@ -38,6 +38,10 @@ const invariants = (label: string) => {
       const r = st.rounds.find((x) => x.id === v.activeRoundId);
       assert.ok(r && r.status === 'pending' && r.verdicts.length < 2, `${label}: 净化样本必须有未完成轮次`);
     }
+    if (v.status === 'abnormal') {
+      assert.ok(v.activeRoundId == null && v.abnormalAt, `${label}: 异常待处理样本须隔离且无活跃轮次`);
+      assert.ok(!st.waitQueue.includes(v.id), `${label}: 异常样本不得在待取队列`);
+    }
     if (v.status === 'sealed') assert.ok(v.sealedAt && v.sealReason, `${label}: 封存样本须有封存信息`);
   }
   n++;
@@ -98,6 +102,41 @@ invariants('流程后');
 // 流程事件：登记1 待取1 借出1 转交1 归还1 发起净化1 第一结论1
 // 第二结论冲突3（结论/冲突/回队） 新一轮第一结论1 新一轮第二结论2（结论/完成） 封存1 = 14
 ok(store.getState().state.timeline.length === clearedTimeline + 14, `时间线事件数正确（${store.getState().state.timeline.length - clearedTimeline}）`);
+
+// --- 异常分支：双人一致异常 → 隔离 → 禁止预约/借出 → 重新送检 → 相符回柜 ---
+const reg2 = dispatch({ type: 'register', clientToken: 'e2e-a1', name: 'E2E 异常瓶', source: '测试', smellType: '焦味' });
+ok(!reg2.error, '登记异常瓶');
+const abId = store.getState().state.vials.find((v) => v.name === 'E2E 异常瓶')!.id;
+ok(!dispatch({ type: 'purify_start', clientToken: 'e2e-a2', vialId: abId }).error, '送检');
+ok(!dispatch({ type: 'purify_verdict', clientToken: 'e2e-a3', vialId: abId, reviewer: '甲', conclusion: 'mismatch', note: '衰减' }).error, '异常结论 1');
+ok(!dispatch({ type: 'purify_verdict', clientToken: 'e2e-a4', vialId: abId, reviewer: '乙', conclusion: 'mismatch', note: '杂味' }).error, '异常结论 2');
+const abVial = () => store.getState().state.vials.find((v) => v.id === abId)!;
+ok(abVial().status === 'abnormal', '一致异常 → 隔离待处理，不回柜');
+ok(!store.getState().state.waitQueue.includes(abId), '异常瓶不在队列');
+ok(dispatch({ type: 'request_wait', clientToken: 'e2e-ab1', vialId: abId, requester: 'x' }).error?.includes('异常待处理'), '异常瓶禁止预约');
+ok(!!dispatch({ type: 'loan', clientToken: 'e2e-ab2', vialId: abId, holder: 'h', pickupPoint: 'p', purpose: 'u' }).error, '异常瓶禁止借出');
+ok(!!dispatch({ type: 'return_loan', clientToken: 'e2e-ab3', vialId: abId }).error, '异常瓶禁止归还');
+ok(!!dispatch({ type: 'transfer', clientToken: 'e2e-ab4', vialId: abId, newHolder: 'h', newPickupPoint: 'p', newPurpose: 'u' }).error, '异常瓶禁止转交');
+// 重新送检，双人相符后回柜
+ok(!dispatch({ type: 'purify_start', clientToken: 'e2e-a5', vialId: abId, note: '复检' }).error, '重新送检');
+ok(abVial().status === 'purifying', '重新送检后进入净化');
+ok(!dispatch({ type: 'purify_verdict', clientToken: 'e2e-a6', vialId: abId, reviewer: '甲', conclusion: 'match' }).error, '复检结论 1');
+ok(!dispatch({ type: 'purify_verdict', clientToken: 'e2e-a7', vialId: abId, reviewer: '乙', conclusion: 'match' }).error, '复检结论 2');
+ok(abVial().status === 'in_cabinet', '复检双人相符 → 回柜');
+invariants('异常重新送检后');
+
+// --- 异常分支二：一致异常 → 封存处置（终态）---
+const reg3 = dispatch({ type: 'register', clientToken: 'e2e-b1', name: 'E2E 异常封存瓶', source: '测试', smellType: '霉味' });
+ok(!reg3.error, '登记异常封存瓶');
+const ab2 = store.getState().state.vials.find((v) => v.name === 'E2E 异常封存瓶')!.id;
+ok(!dispatch({ type: 'purify_start', clientToken: 'e2e-b2', vialId: ab2 }).error, '送检');
+ok(!dispatch({ type: 'purify_verdict', clientToken: 'e2e-b3', vialId: ab2, reviewer: '甲', conclusion: 'mismatch' }).error, '异常 1');
+ok(!dispatch({ type: 'purify_verdict', clientToken: 'e2e-b4', vialId: ab2, reviewer: '乙', conclusion: 'mismatch' }).error, '异常 2');
+ok(store.getState().state.vials.find((v) => v.id === ab2)!.status === 'abnormal', '隔离待处理');
+ok(!dispatch({ type: 'seal', clientToken: 'e2e-b5', vialId: ab2, reason: '复检确认变质，封存处置' }).error, '异常样本可封存处置');
+ok(store.getState().state.vials.find((v) => v.id === ab2)!.status === 'sealed', '已封存处置');
+ok(!!dispatch({ type: 'purify_start', clientToken: 'e2e-b6', vialId: ab2 }).error, '封存后不能再送检');
+invariants('异常封存后');
 
 // --- 模拟刷新：localStorage 已写入；重新水合后状态一致 ---
 // zustand persist 存储结构为 { state: partialize 的返回, version }

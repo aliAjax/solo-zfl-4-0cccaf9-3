@@ -24,6 +24,7 @@ const FILTERS: { key: VialStatus | 'all'; label: string }[] = [
   { key: 'waiting', label: '⏳ 待取' },
   { key: 'on_loan', label: '🤲 借出' },
   { key: 'purifying', label: '🧪 净化' },
+  { key: 'abnormal', label: '🚧 异常待处理' },
   { key: 'sealed', label: '🔒 封存' },
 ];
 

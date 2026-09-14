@@ -51,8 +51,16 @@ export default function TimelineEventText({ event }: { event: TimelineEvent }) {
       text = `两名核对人结论一致（${c}），净化完成，样本回柜`;
       break;
     }
+    case 'purify_abnormal':
+      text = `两名核对人一致判定「异常不符」，第 ${Number(p.roundSeq)} 轮结束；样本隔离为「异常待处理」，不回柜、不可预约或借出，等待重新送检或封存处置`;
+      break;
+    case 'abnormal_repurify':
+      text = `异常样本重新送检，进入第 ${Number(p.roundSeq)} 轮净化核对${p.note ? `：${str(p.note)}` : ''}`;
+      break;
     case 'sealed':
-      text = `封存样本：${str(p.reason)}。封存后不能恢复`;
+      text = p.fromAbnormal
+        ? `异常样本封存处置：${str(p.reason)}。封存后不能恢复`
+        : `封存样本：${str(p.reason)}。封存后不能恢复`;
       break;
   }
   const meta = EVENT_META[event.type];

@@ -44,9 +44,17 @@ function expectError(s: ChainState, a: ChainAction, mustInclude: string) {
   eq(byStatus.waiting, 1, '种子中应有 1 瓶待取（S-003 队首）');
   eq(byStatus.on_loan, 1, '种子中应有 1 瓶借出（S-001）');
   eq(byStatus.purifying, 2, '种子中应有 2 瓶净化中');
+  eq(byStatus.abnormal, 1, '种子中应有 1 瓶异常待处理（S-002 双人一致异常）');
   eq(byStatus.sealed, 1, '种子中应有 1 瓶封存');
-  eq(byStatus.in_cabinet, 3, '种子中应有 3 瓶在柜');
+  eq(byStatus.in_cabinet, 2, '种子中应有 2 瓶在柜');
   eq(seed.waitQueue[0], seed.vials[2].id, '队首应为 S-003');
+  // S-002 异常轮次状态为 abnormal，样本处于 abnormal 且未回柜
+  const s2 = seed.vials[1];
+  eq(s2.status, 'abnormal', 'S-002 隔离待处理');
+  const s2rounds = seed.rounds.filter((r) => r.vialId === s2.id);
+  eq(s2rounds[s2rounds.length - 1].status, 'abnormal', '最后一轮以异常结束');
+  eq(s2.activeRoundId, null, '异常样本不挂活跃轮次');
+  ok(seed.timeline.some((e) => e.type === 'purify_abnormal'), '时间线记录一致异常事件');
   // S-008 有 两条交接记录（借出 → 转交新记录，旧记录结束）
   const loans8 = seed.loans.filter((l) => l.vialId === seed.vials[7].id);
   eq(loans8.length, 2, '转交应生成新记录');
@@ -152,6 +160,46 @@ s = run(s, { type: 'purify_verdict', clientToken: 'c9', vialId: p2.id, reviewer:
 s = run(s, { type: 'purify_verdict', clientToken: 'c10', vialId: p2.id, reviewer: '沈听澜', conclusion: 'match' });
 eq(s.vials.find((v) => v.id === p2.id)!.status, 'in_cabinet', '重新核对一致后回柜');
 console.log('✓ 净化双人核对：一致完成、冲突返回队列');
+
+// ---------- 6b. 双人一致异常 → 隔离，不回柜 ----------
+s = run(s, { type: 'register', clientToken: 'g1', name: '净 C 异常' });
+const p3 = s.vials[2];
+s = run(s, { type: 'purify_start', clientToken: 'g2', vialId: p3.id, note: '复检' });
+s = run(s, { type: 'purify_verdict', clientToken: 'g3', vialId: p3.id, reviewer: '何闻', conclusion: 'mismatch', note: '衰减' });
+s = run(s, { type: 'purify_verdict', clientToken: 'g4', vialId: p3.id, reviewer: '沈听澜', conclusion: 'mismatch', note: '杂味' });
+const p3v = () => s.vials.find((v) => v.id === p3.id)!;
+eq(p3v().status, 'abnormal', '双人一致异常 → 异常待处理，不回柜');
+eq(p3v().activeRoundId, null, '异常样本无活跃轮次');
+ok(p3v().abnormalAt, '记录隔离时间');
+const p3round = s.rounds.filter((r) => r.vialId === p3.id);
+eq(p3round[p3round.length - 1].status, 'abnormal', '该轮以异常结束（非 completed）');
+ok(s.timeline.some((e) => e.type === 'purify_abnormal'), '异常判定写入时间线');
+// 隔离禁令：不能预约、借出、归还、转交、再核对
+expectError(s, { type: 'request_wait', clientToken: 'gx1', vialId: p3.id, requester: '谁' }, '异常待处理');
+expectError(s, { type: 'loan', clientToken: 'gx2', vialId: p3.id, holder: 'h', pickupPoint: 'p', purpose: 'u' }, '异常待处理');
+expectError(s, { type: 'return_loan', clientToken: 'gx3', vialId: p3.id }, '异常待处理');
+expectError(s, { type: 'transfer', clientToken: 'gx4', vialId: p3.id, newHolder: 'a', newPickupPoint: 'b', newPurpose: 'c' }, '异常待处理');
+expectError(s, { type: 'purify_verdict', clientToken: 'gx5', vialId: p3.id, reviewer: '何闻', conclusion: 'match' }, '异常待处理');
+// 处置一：重新送检 → 新一轮净化，再双人相符可回柜
+s = run(s, { type: 'purify_start', clientToken: 'g5', vialId: p3.id, note: '重新送检' });
+eq(p3v().status, 'purifying', '重新送检进入净化');
+ok(s.timeline.some((e) => e.type === 'abnormal_repurify'), '重新送检写入时间线');
+s = run(s, { type: 'purify_verdict', clientToken: 'g6', vialId: p3.id, reviewer: '何闻', conclusion: 'match' });
+s = run(s, { type: 'purify_verdict', clientToken: 'g7', vialId: p3.id, reviewer: '沈听澜', conclusion: 'match' });
+eq(p3v().status, 'in_cabinet', '重新送检后双人相符 → 回柜');
+
+// 处置二（另一瓶）：一致异常 → 封存处置（终态）
+s = run(s, { type: 'register', clientToken: 'g8', name: '净 D 异常封存' });
+const p4 = s.vials[3];
+s = run(s, { type: 'purify_start', clientToken: 'g9', vialId: p4.id });
+s = run(s, { type: 'purify_verdict', clientToken: 'g10', vialId: p4.id, reviewer: '何闻', conclusion: 'mismatch' });
+s = run(s, { type: 'purify_verdict', clientToken: 'g11', vialId: p4.id, reviewer: '沈听澜', conclusion: 'mismatch' });
+eq(s.vials.find((v) => v.id === p4.id)!.status, 'abnormal', 'p4 异常待处理');
+s = run(s, { type: 'seal', clientToken: 'g12', vialId: p4.id, reason: '复检确认变质，封存处置' });
+eq(s.vials.find((v) => v.id === p4.id)!.status, 'sealed', '异常样本可封存处置');
+const sealEvt = s.timeline.filter((e) => e.vialId === p4.id && e.type === 'sealed').slice(-1)[0];
+eq(sealEvt.payload.fromAbnormal, true, '封存记录标记来自异常处置');
+console.log('✓ 双人一致异常：隔离待处理、禁止预约/借出、可重新送检或封存处置');
 
 // ---------- 7. 封存终态 ----------
 s = run(s, { type: 'seal', clientToken: 'd1', vialId: p2.id, reason: '长期保存' });

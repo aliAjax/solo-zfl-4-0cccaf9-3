@@ -73,6 +73,11 @@ export function buildSeed(): ChainState {
   run({ type: 'purify_verdict', clientToken: 'seed-v4', vialId: ids()[6], reviewer: '何闻', conclusion: 'mismatch', note: '焦味偏重' });
   run({ type: 'purify_verdict', clientToken: 'seed-v5', vialId: ids()[6], reviewer: '沈听澜', conclusion: 'match', note: '判断为正常焦糖化' });
 
+  // S-002 两名核对人一致判定异常 → 隔离待处理（不回柜，等待重新送检或封存处置）
+  run({ type: 'purify_start', clientToken: 'seed-p4', vialId: ids()[1], note: '开柜复检' });
+  run({ type: 'purify_verdict', clientToken: 'seed-v6', vialId: ids()[1], reviewer: '何闻', conclusion: 'mismatch', note: '青草气明显衰减' });
+  run({ type: 'purify_verdict', clientToken: 'seed-v7', vialId: ids()[1], reviewer: '沈听澜', conclusion: 'mismatch', note: '检出杂味，建议隔离' });
+
   // S-006 封存（终态）
   run({ type: 'seal', clientToken: 'seed-s1', vialId: ids()[5], reason: '活性成分衰减，长期保存样本，不再出库' });
 

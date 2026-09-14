@@ -6,6 +6,7 @@ export type VialStatus =
   | 'waiting' // 待取（已排队，可能是队首或队列中）
   | 'on_loan' // 借出
   | 'purifying' // 净化（等待两名核对人结论）
+  | 'abnormal' // 异常待处理（双人一致判定异常，隔离中，禁止预约/借出，等待重新送检或封存处置）
   | 'sealed'; // 封存（终态，不可恢复）
 
 export type PurifyConclusion = 'match' | 'mismatch'; // 相符 / 异常不符
@@ -27,6 +28,8 @@ export interface Vial {
   currentLoanId?: string | null;
   // 净化
   activeRoundId?: string | null;
+  abnormalAt?: string; // 双人一致判定异常、进入隔离待处理的时间
+  abnormalReason?: string; // 最近一次异常结论备注
   // 封存
   sealedAt?: string;
   sealReason?: string;
@@ -60,7 +63,7 @@ export interface PurifyRound {
   seq: number;
   startedAt: string;
   verdicts: PurifyVerdict[];
-  status: 'pending' | 'completed' | 'conflict';
+  status: 'pending' | 'completed' | 'conflict' | 'abnormal';
   agreedConclusion?: PurifyConclusion;
   endedAt?: string;
 }
@@ -78,7 +81,9 @@ export type TimelineEventType =
   | 'purify_verdict' // 核对结论
   | 'purify_conflict' // 双人结论冲突
   | 'purify_requeued' // 冲突后返回净化队列（新一轮）
-  | 'purify_completed' // 双人结论一致，净化完成
+  | 'purify_completed' // 双人结论一致相符，净化完成
+  | 'purify_abnormal' // 双人一致判定异常不符，样本隔离待处理
+  | 'abnormal_repurify' // 异常样本重新送检，进入新一轮净化
   | 'sealed'; // 封存
 
 export interface TimelineEvent {

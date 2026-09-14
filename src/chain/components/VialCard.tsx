@@ -58,6 +58,9 @@ export default function VialCard({ vial, state, onOpen }: Props) {
             {round.verdicts.length === 1 && '，等待第二人'}
           </p>
         )}
+        {vial.status === 'abnormal' && (
+          <p className="text-brick-600 font-medium">🚧 双人一致判定异常，隔离待处理（不可预约 / 借出）</p>
+        )}
         {vial.status === 'sealed' && vial.sealReason && (
           <p className="truncate text-ink-700/55">封存原因：{vial.sealReason}</p>
         )}
