@@ -4,6 +4,11 @@ export function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
 }
 
+/** 每次提交的唯一令牌：服务端/store 据此拒绝重复提交 */
+export function newClientToken(): string {
+  return 'ct-' + generateId();
+}
+
 export function formatDate(iso: string): string {
   const d = new Date(iso);
   const y = d.getFullYear();

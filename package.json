@@ -8,7 +8,10 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "check": "tsc -b --noEmit"
+    "check": "tsc -b --noEmit",
+    "test:chain": "esbuild scripts/chain.test.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/chain.test.mjs && node node_modules/.tmp/chain.test.mjs",
+    "test:store": "esbuild scripts/chain.store.test.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/chain.store.test.mjs && node node_modules/.tmp/chain.store.test.mjs",
+    "test": "npm run test:chain && npm run test:store"
   },
   "dependencies": {
     "clsx": "^2.1.1",

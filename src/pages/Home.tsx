@@ -9,7 +9,8 @@ import type { Filters } from '../utils/helpers';
 import { filterMemories } from '../utils/helpers';
 import type { SmellMemory } from '../utils/constants';
 import type { MemoryInput } from '../store/memoryStore';
-import { BookOpenCheck } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { BookOpenCheck, FlaskConical } from 'lucide-react';
 
 const defaultFilters: Filters = {
   smellType: '',
@@ -86,9 +87,18 @@ export default function Home() {
               <BookOpenCheck className="w-5 h-5" />
               气味档案
             </h2>
-            <span className="text-xs text-ink-700/50">
-              点击卡片展开完整回忆
-            </span>
+            <div className="flex items-center gap-2">
+              <Link
+                to="/chain"
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-moss-600 bg-moss-100 hover:bg-moss-200/70 border border-moss-200 rounded-full px-3.5 py-1.5 transition-all"
+              >
+                <FlaskConical className="w-4 h-4" />
+                样本保管链
+              </Link>
+              <span className="text-xs text-ink-700/50 hidden sm:inline">
+                点击卡片展开完整回忆
+              </span>
+            </div>
           </div>
 
           {filteredMemories.length === 0 ? (
